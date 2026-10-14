@@ -21,21 +21,34 @@ serving, and registry registration for you.
 """
 
 import logging
-from typing import Any
-
+from typing import Any, Optional
+import os
 from prometheus_api import load_prompt  # noqa: F401 - used by the LLM pattern below
 from prometheus_api.agent import EventQueue, PrometheusAgent, RequestContext
+from prometheus_api.storage_client.connection import ConnectionConfig
+import json
+import pandas as pd
+from io import StringIO
+from pathlib import Path
 
 # Read secrets and configuration from environment variables.
 # Never hard-code API keys or URLs here.
 # Example (add `import os` to the imports above):
-#   MY_API_KEY = os.getenv("MY_API_KEY")
+MY_API_KEY = os.getenv("LITELLM_MASTER_KEY")
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def _try_storage_config() -> Optional[ConnectionConfig]:
+    """Return a ConnectionConfig from env, or None if credentials are missing."""
+    try:
+        return ConnectionConfig.from_env()
+    except ValueError:
+        return None
 
 
 class Team8AgentAgent(PrometheusAgent):
@@ -92,9 +105,22 @@ class Team8AgentAgent(PrometheusAgent):
         # 1. Read inputs from params.  These keys must match the properties
         #    declared in agent_card.json's inputSchema.
         # ------------------------------------------------------------------
-        input_data = params.get("input_data")
-        if not input_data:
+        # input_data = params.get("input_data")
+        artifact_id = params.get("document_artifact_id")
+        description = params.get("table_description")
+
+        if not artifact_id and not description:
             return {"status": "error", "error": "input_data is required"}
+
+        file_path = await self.get_artifact_file_path(
+            artifact_id, context=context, artifacts=params.get("artifacts")
+        )
+        system_prompt = load_prompt("extract.txt").format(
+            file_path=file_path.read_text(), description=description
+        )
+        async with self.llm_client(context) as llm:
+            response = await llm.medium(system_prompt)
+        # return {"status": "success", "summary": response.text}
 
         # ------------------------------------------------------------------
         # 2. Send optional progress updates so the UI stays responsive.
@@ -107,13 +133,37 @@ class Team8AgentAgent(PrometheusAgent):
             message="Processing your request…",
         )
 
+        result = json.loads(response.text)
+        df = pd.read_csv(StringIO(result["csv"]))
+        # file_path = os.path.join(os.getcwd(), result["filename"])
+        file_path = Path.cwd() / result["filename"]
+        df.to_csv(file_path, index=False)
+        storage_config = _try_storage_config()
+        artifact_ref = await self.send_deeplynx_artifact(
+            context=context,
+            event_queue=event_queue,
+            file_path=file_path,
+            name=result["filename"],
+            description="Extracted csv file",
+            storage_config=storage_config,
+            mime_type="text/csv",
+            tags=["extracted", "csv"],
+            metadata={"description": description},
+        )
+
         # ------------------------------------------------------------------
         # 3. Do your actual work here.  Replace this with real logic.
         # ------------------------------------------------------------------
         result = {
-            "status": "success",
-            "input_received": input_data,
-            "message": "Replace this with your agent's processing logic.",
+            "status": "created",
+            # "conversation_id": conversation_id,
+            "message": "CSV Extracted Successfully",
+            "artifact": artifact_ref.to_dict(),
+            "artifact_id": artifact_ref.artifact_id,
+            "artifact_name": artifact_ref.name,
+            "artifact_uri": artifact_ref.uri,
+            # "input_received": description,
+            # "summary": response.text,
         }
 
         # ------------------------------------------------------------------
@@ -128,10 +178,6 @@ class Team8AgentAgent(PrometheusAgent):
     #
     # Calling an LLM through the platform's LiteLLM gateway:
     #
-    #     system_prompt = load_prompt("system_prompt.txt").format(input_data=input_data)
-    #     async with self.llm_client(context) as llm:
-    #         response = await llm.medium(system_prompt)
-    #     return {"status": "success", "summary": response.text}
     #
     # Dispatching when agent_card.json declares more than one skill:
     #
