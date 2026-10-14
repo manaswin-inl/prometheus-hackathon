@@ -70,6 +70,7 @@ FILTER_OPS = {
 WEBGL_THRESHOLD = 10_000  # switch scatter/line to WebGL above this many points
 PALETTE = qualitative.Plotly + qualitative.D3
 SAVE_FORMATS = ("html", "png", "svg", "pdf")  # png/svg/pdf need kaleido
+DEFAULT_DPI = 300  # PNG resolution when neither the caller nor the spec sets one
 
 # Styling vocabularies
 MARKER_SYMBOLS = (
@@ -104,7 +105,7 @@ SYMBOL_CYCLE = (
 LINE_DASHES = ("solid", "dot", "dash", "longdash", "dashdot", "longdashdot")
 BAR_PATTERNS = ("/", "\\", "x", "-", "|", "+", ".")
 SYMBOL_TYPES = {"scatter", "line", "bubble"}  # marker_symbol, symbol_by, marker_size
-LINE_TYPES = {"line", "area"}  # line_dash, line_width
+LINE_TYPES = {"line", "area", "scatter"}  # line_dash, line_width (scatter joins points by default)
 PATTERN_TYPES = {"bar", "histogram"}  # pattern, pattern_by
 COLOR_BY_TYPES = {"scatter", "line", "bubble", "bar"}  # continuous color scale
 
@@ -453,7 +454,10 @@ def _xy_traces(data: pd.DataFrame, t: dict, split: dict, styles: _Styles) -> lis
         data = _aggregate(data, x, ycols, agg)
         if not ycols:
             ycols = ["count"]
-    data = _sort(data, t, x, default_sort_x=ttype in {"line", "area"})
+    # Scatter points are joined by a line unless markers_only is set, so sort them
+    # by x like line/area charts to keep the line from zigzagging.
+    joined = ttype in {"line", "area"} or (ttype == "scatter" and not t.get("markers_only"))
+    data = _sort(data, t, x, default_sort_x=joined)
     big = len(data) > WEBGL_THRESHOLD
 
     traces = []
@@ -487,7 +491,12 @@ def _xy_traces(data: pd.DataFrame, t: dict, split: dict, styles: _Styles) -> lis
         Scatter = go.Scattergl if big and ttype != "area" else go.Scatter
         kw: dict[str, Any] = dict(x=data[x], y=data[y], **common)
         if ttype == "scatter":
-            kw.update(mode="markers", marker=_marker(t, data, s, styles))
+            if t.get("markers_only"):
+                kw.update(mode="markers", marker=_marker(t, data, s, styles))
+            else:
+                kw.update(
+                    mode="lines+markers", line=line, marker=_marker(t, data, s, styles)
+                )
         elif ttype == "line":
             show_markers = any(
                 t.get(k)
@@ -871,6 +880,7 @@ def save_figure(
     width: int | None = None,
     height: int | None = None,
     embed_plotlyjs: bool = False,
+    dpi: float | None = None,
 ) -> tuple[dict[str, str], dict[str, str]]:
     """
     Save a figure in one or more formats: "html", "png", "svg", "pdf".
@@ -879,6 +889,8 @@ def save_figure(
       otherwise it loads plotly.js from a CDN.
     - png/svg/pdf are static and rendered by kaleido. `scale` multiplies the pixel
       resolution of PNGs (2 = sharp on retina screens); svg/pdf are vector anyway.
+    - dpi, when given, overrides scale for PNGs. width/height are treated as CSS
+      pixels at 96 dpi, so dpi=300 renders at 300/96 = 3.125x.
     - width/height default to the figure's own layout size.
 
     Returns (saved, errors): {format: path} for each success, {format: message} for each failure.
@@ -888,6 +900,8 @@ def save_figure(
     out.mkdir(parents=True, exist_ok=True)
     stem = _safe_filename(filename)
 
+    if dpi:
+        scale = dpi / 96
     width = width or fig.layout.width or 1100
     height = height or fig.layout.height or 600
     saved: dict[str, str] = {}
@@ -900,29 +914,30 @@ def save_figure(
             )
             continue
         path = out / f"{stem}.{fmt}"
-        if fmt == "html":
-            fig.write_html(
-                path,
-                include_plotlyjs=True if embed_plotlyjs else "cdn",
-                full_html=True,
-            )
-        else:
-            fig.write_image(
-                path,
-                format=fmt,
-                width=width,
-                height=height,
-                scale=scale if fmt == "png" else 1,
-            )
-        saved[fmt] = str(path)
-        # except Exception as e:
-        #     msg = f"{type(e).__name__}: {e}"
-        #     if "kaleido" in msg.lower() or "chrome" in msg.lower():
-        #         msg += (
-        #             " (static export needs `pip install -U kaleido`; kaleido v1+ also needs Chrome - "
-        #             "run `plotly_get_chrome` once if it isn't installed)"
-        #         )
-        #     errors[fmt] = msg
+        try:
+            if fmt == "html":
+                fig.write_html(
+                    path,
+                    include_plotlyjs=True if embed_plotlyjs else "cdn",
+                    full_html=True,
+                )
+            else:
+                fig.write_image(
+                    path,
+                    format=fmt,
+                    width=width,
+                    height=height,
+                    scale=scale if fmt == "png" else 1,
+                )
+            saved[fmt] = str(path)
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if "kaleido" in msg.lower() or "chrome" in msg.lower():
+                msg += (
+                    " (static export needs `pip install -U kaleido`; kaleido v1+ also needs Chrome - "
+                    "run `plotly_get_chrome` once if it isn't installed)"
+                )
+            errors[fmt] = msg
     return saved, errors
 
 
@@ -933,12 +948,14 @@ def run_plot_tool(
     formats: list[str] | None = None,
     filename: str | None = None,
     embed_plotlyjs: bool = False,
+    dpi: float | None = None,
 ) -> dict:
     """
     Tool-call handler: never raises, always returns a JSON-serialisable result for the LLM.
 
     Output settings come from (highest priority first): the arguments here, then
-    spec["save"] chosen by the LLM, then the defaults (html, filename from the title).
+    spec["save"] chosen by the LLM, then the defaults (png at DEFAULT_DPI, filename
+    from the title).
     """
     try:
         fig, warnings = plot_from_spec(df, spec)
@@ -955,12 +972,13 @@ def run_plot_tool(
     saved, save_errors = save_figure(
         fig,
         filename=filename or save.get("filename") or spec.get("title") or "plot",
-        formats=formats or save.get("formats") or ["html"],
+        formats=formats or save.get("formats") or ["png"],
         output_dir=output_dir,
         scale=save.get("scale", 2),
         width=save.get("width"),
         height=save.get("height"),
         embed_plotlyjs=embed_plotlyjs,
+        dpi=dpi or save.get("dpi") or DEFAULT_DPI,
     )
 
     summary = []
@@ -1144,6 +1162,12 @@ _TRACE_SCHEMA = {
         },
         "stacked": {"type": "boolean", "description": "area only: stack areas."},
         "markers": {"type": "boolean", "description": "line only: show points."},
+        "markers_only": {
+            "type": "boolean",
+            "description": "scatter only: points without the connecting line. Scatter "
+            "joins points with a line by default; set this only when the user asks for "
+            "points/markers only.",
+        },
         "nbins": {"type": "integer", "description": "histogram only."},
         "histnorm": {
             "type": "string",
@@ -1253,8 +1277,8 @@ TOOL_SCHEMA = {
             },
             "save": {
                 "type": "object",
-                "description": "How to save the chart. Default: interactive html only. Add png/svg/pdf "
-                "when the user asks for an image, a file to put in a document/slide, or print.",
+                "description": "How to save the chart. Default: png at 300 dpi. Add html only "
+                "when the user asks for an interactive plot.",
                 "properties": {
                     "formats": {
                         "type": "array",
@@ -1271,7 +1295,15 @@ TOOL_SCHEMA = {
                         "type": "number",
                         "minimum": 0.5,
                         "maximum": 5,
-                        "description": "PNG resolution multiplier (default 2).",
+                        "description": "PNG resolution multiplier. Ignored when dpi is "
+                        "set, which it is by default.",
+                    },
+                    "dpi": {
+                        "type": "number",
+                        "minimum": 36,
+                        "maximum": 600,
+                        "description": "PNG resolution in dots per inch (default 300). "
+                        "Set only when the user asks for a different one. Overrides scale.",
                     },
                     "width": {
                         "type": "integer",
