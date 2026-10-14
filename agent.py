@@ -30,6 +30,7 @@ import json
 import pandas as pd
 from io import StringIO
 from pathlib import Path
+from plotly_tool import run_plot_tool
 
 # Read secrets and configuration from environment variables.
 # Never hard-code API keys or URLs here.
@@ -112,15 +113,17 @@ class Team8AgentAgent(PrometheusAgent):
             "team_8_agent_plot": self._plot,
         }.get(params.get("skill_id"))
         if handler is None:
-            return {"status": "error", "error": f"Unknown skill: {params.get('skill_id')}"}
-        
+            return {
+                "status": "error",
+                "error": f"Unknown skill: {params.get('skill_id')}",
+            }
+
         return await handler(params, context, event_queue)
 
+    async def _extract(
+        self, params: dict[str, Any], context: RequestContext, event_queue: EventQueue
+    ) -> dict[str, Any]:
 
-    async def _extract(self, params: dict[str, Any], 
-                 context: RequestContext, 
-                 event_queue: EventQueue) -> dict[str, Any]:
-        
         artifact_id = params.get("document_artifact_id")
         description = params.get("table_description")
 
@@ -187,62 +190,96 @@ class Team8AgentAgent(PrometheusAgent):
         # ------------------------------------------------------------------
         return result
 
-    async def _plot(self, params: dict[str, Any],
-                    context: RequestContext,
-                    event_queue: EventQueue) -> dict[str, Any]:
-            
-            artifact_id = params.get("extracted_artifact_id")
-            description = params.get("plot_description")
-    
-            if not artifact_id and not description:
-                return {"status": "error", "error": "input_data is required"}
-    
-            file_path = await self.get_artifact_file_path(
-                artifact_id, context=context, artifacts=params.get("artifacts")
-            )
-            system_prompt = load_prompt("plot.txt").format(
-                file_path=file_path.read_text(), description=description
-                    )
+    async def _plot(
+        self, params: dict[str, Any], context: RequestContext, event_queue: EventQueue
+    ) -> dict[str, Any]:
 
-            await self.send_status_update(
-                context=context,
-                event_queue=event_queue,
-                message="Processing your request…",
-            )
+        artifact_id = params.get("extracted_artifact_id")
+        description = params.get("plot_description")
 
-            async with self.llm_client(context) as llm:
-                response = await llm.medium(system_prompt)
+        if not artifact_id and not description:
+            return {"status": "error", "error": "input_data is required"}
 
-            result = json.loads(response.text)
-            df = pd.read_csv(StringIO(result["csv"]))
-            # Call the plotting tool.
+        csv_path = await self.get_artifact_file_path(
+            artifact_id, context=context, artifacts=params.get("artifacts")
+        )
 
-            storage_config = _try_storage_config()
+        # 2. Put its contents into the message
+        df = pd.read_csv(csv_path)
+        csv_text = df.to_csv()
+
+        system_prompt = load_prompt("plot.txt").format(
+            csv_data=csv_text,
+            description=description,
+        )
+        async with self.llm_client(context) as llm:
+            response = await llm.medium(system_prompt)
+
+        await self.send_status_update(
+            context=context,
+            event_queue=event_queue,
+            message="Processing your request…",
+        )
+
+        raw = response.text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0]
+        try:
+            llm_result = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error("LLM returned non-JSON: %r", response.text)
+            return {"status": "error", "error": "Model did not return valid JSON"}
+        llm_summary = llm_result["summary"]
+        plot_payload = llm_result["payload"]
+
+        # Call the plotting tool.
+        plot_result = run_plot_tool(df, plot_payload)
+        if not plot_result["ok"]:
+            return {
+                "status": "error",
+                "error": plot_result.get("error", "Plot generation failed"),
+                "summary": llm_summary,
+            }
+
+        mime_types = {
+            "png": "image/png",
+            "svg": "image/svg+xml",
+            "pdf": "application/pdf",
+            "html": "text/html",
+        }
+        storage_config = _try_storage_config()
+        artifact_refs = []
+        for fmt, img_path in plot_result["files"].items():
+            img_path = Path(img_path)
+            print("************************************")
+            print("************************************")
+            print(img_path, flush=True)
+            print("************************************")
+            print("************************************")
             artifact_ref = await self.send_deeplynx_artifact(
                 context=context,
                 event_queue=event_queue,
-                file_path=img_file_path,
-                name=result["filename"],
+                file_path=img_path,
+                name=img_path.name,
                 description="Generated plot image",
                 storage_config=storage_config,
-                mime_type="image/png",
-                tags=["plot", "image"],
+                mime_type=mime_types.get(fmt, "application/octet-stream"),
+                tags=["plot", fmt],
                 metadata={"description": description},
             )
-            
-            result = {
-                "status": "created",
-                # "conversation_id": conversation_id,
-                "message": "Plot Created Successfully",
-                "artifact": artifact_ref.to_dict(),
-                "artifact_id": artifact_ref.artifact_id,
-                "artifact_name": artifact_ref.name,
-                "artifact_uri": artifact_ref.uri,
-                # "input_received": description,
-                # "summary": response.text,
-            }
-    
-            return result
+            artifact_refs.append(artifact_ref)
+
+        result = {
+            "status": "created",
+            "message": f"Plot Created Successfully ({len(artifact_refs)} file(s))",
+            "artifacts": [ref.to_dict() for ref in artifact_refs],
+            "artifact_ids": [ref.artifact_id for ref in artifact_refs],
+            "artifact_names": [ref.name for ref in artifact_refs],
+            "artifact_uris": [ref.uri for ref in artifact_refs],
+            "summary": llm_summary,
+        }
+
+        return result
 
     # ----------------------------------------------------------------------
     # PATTERNS — uncomment and adapt as needed.
