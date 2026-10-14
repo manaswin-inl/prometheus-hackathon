@@ -15,7 +15,8 @@ dependencies = [
     #   "httpx>=0.26.0",       # if you call external HTTP APIs
     #   "numpy>=1.26.0",       # if you use NumPy
     "pandas>=2.2",
-    "plotly>=5.0",
+    "plotly>=6.1",
+    "kaleido>=1.0",
 ]
 
 [dependency-groups]

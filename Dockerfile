@@ -17,6 +17,12 @@ ENV HTTP_PROXY=${HTTP_PROXY} \
 
 WORKDIR /app
 
+# Chromium for kaleido (v1+), which plotly uses to export static images (png/svg/pdf).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
+    rm -rf /var/lib/apt/lists/*
+ENV BROWSER_PATH=/usr/bin/chromium
+
 # Tell uv (the package manager) to install into the system Python — where
 # prometheus_api already lives — rather than creating a separate virtualenv.
 ENV UV_PROJECT_ENVIRONMENT="/usr/local" \
@@ -33,6 +39,7 @@ RUN --mount=type=cache,id=prometheus-uv-cache,target=/root/.cache/uv,sharing=loc
 
 # Copy agent source last so code changes don't invalidate the dependency cache.
 COPY agent.py /app/agent.py
+COPY plotly_tool.py /app/plotly_tool.py
 COPY agent_card.json /app/agent_card.json
 COPY prompts /app/prompts
 COPY workflows /app/workflows
