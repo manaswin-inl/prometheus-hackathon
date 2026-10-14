@@ -11,19 +11,23 @@
       "id": "team_8_agent_extract",
       "name": "team_8_agent Extract",
       "description": "Reads relavant files and extracts tabular data which matches the user specifications. Input files can be any text based formats (.md, .csv, .txt, so on)",
-      "usage_notes": "When to use this skill vs. other available skills.",
+      "usage_notes": "Only for extracting tabular data from files. Input files can be any text based formats (.md, .csv, .txt, so on).",
       "requires_approval": false,
       "expected_duration_seconds": 30,
       "output_format": "JSON with keys: status, input_received, message",
       "inputSchema": {
         "type": "object",
         "properties": {
-          "input_data": {
+          "document_artifact_id": {
+            "x_artifact_ref": "single",
+            "description": "The input document artifact id to process."
+          },
+          "table_description": {
             "type": "string",
-            "description": "The main input data to process."
+            "description": "How the user named the table and the columns in the data fields."
           }
         },
-        "required": ["input_data"]
+        "required": ["document_artifact_id", "table_description"]
       }
     }
   ]
