@@ -3,7 +3,7 @@
   "description": "This is an agent which will be used to read  agent to extract relevant tabular data from files and display plots",
   "version": "1.0.0",
   "capabilities": {
-    "streaming": false,
+    "streaming": true,
     "pushNotifications": false
   },
   "skills": [
@@ -27,7 +27,10 @@
             "description": "How the user named the table and the columns in the data fields."
           }
         },
-        "required": ["document_artifact_id", "table_description"]
+        "required": [
+          "document_artifact_id",
+          "table_description"
+        ]
       }
     },
     {
@@ -48,9 +51,46 @@
           "plot_description": {
             "type": "string",
             "description": "Plot based on the description provided by the user. If no description is provided, do not plot anything and request more details."
+          },
+          "dpi": {
+            "type": "number",
+            "description": "Optional PNG resolution in dots per inch. Defaults to 300; only set when the user asks for a different resolution."
+          },
+          "interactive": {
+            "type": "boolean",
+            "description": "Also return an interactive HTML version of the plot. Only set to true when the user asks for an interactive plot."
           }
         },
-        "required": ["extracted_artifact_id", "plot_description"]
+        "required": [
+          "extracted_artifact_id",
+          "plot_description"
+        ]
+      }
+    },
+    {
+      "id": "team_8_agent_table",
+      "name": "team_8_agent Table",
+      "description": "Describes a CSV table (columns, likely units, value ranges, gaps) or converts numeric columns to different units (e.g. degC to degF, MPa to psi) and returns the converted table as a new CSV artifact, ready to plot.",
+      "usage_notes": "Use to explain what a table contains, or to change the units of columns before plotting. Operates on .csv artifacts, such as those produced by the extract skill.",
+      "requires_approval": false,
+      "expected_duration_seconds": 20,
+      "output_format": "JSON with keys: status, message, description; for conversions also conversions, artifact, artifact_id, artifact_name, artifact_uri",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "table_artifact_id": {
+            "x_artifact_ref": "single",
+            "description": "The CSV table artifact id to describe or convert."
+          },
+          "table_request": {
+            "type": "string",
+            "description": "What the user wants: a description of the table, and/or which columns to convert to which units."
+          }
+        },
+        "required": [
+          "table_artifact_id",
+          "table_request"
+        ]
       }
     }
   ]

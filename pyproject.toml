@@ -17,6 +17,7 @@ dependencies = [
     "pandas>=2.2",
     "plotly>=6.1",
     "kaleido>=1.0",
+    "pint>=0.24",
 ]
 
 [dependency-groups]
