@@ -1,0 +1,77 @@
+services:
+  team-8-agent-agent:
+    build:
+      context: .
+      args:
+        # Default to using the latest prometheus_api base image. Override using an env var
+        # only for resolving transient incompatibilities.
+        PROMETHEUS_API_BASE_IMAGE_REPO: ${PROMETHEUS_API_BASE_IMAGE_REPO:-containers.github.inl.gov/genesis/prometheus_api}
+        PROMETHEUS_API_BASE_IMAGE_HASH: ${PROMETHEUS_API_BASE_IMAGE_HASH:-latest}
+        # Corporate proxy settings (optional — leave empty if not behind a proxy).
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    container_name: team-8-agent-agent
+    networks:
+      - agent-network
+    environment:
+      AGENT_PORT: ${AGENT_PORT:-8000}
+      # The agent registers http://{container hostname}:{AGENT_PORT}; Docker
+      # Compose sets the hostname to the service name, which resolves on
+      # agent-network. docker-compose.net_external.yml sets EXTERNAL_AGENT_URL
+      # when EXTERNAL_AGENT_HOST and EXTERNAL_AGENT_PORT are set.
+
+      AGENT_SECRET: ${AGENT_SECRET}
+      AGENT_SECRET_REQUIRED: ${AGENT_SECRET_REQUIRED:-true}
+      REGISTRY_URL: ${REGISTRY_URL:-http://litellm-proxy:4000}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+
+      # Multi-user identity (RS256 only). This agent only ever verifies who is
+      # calling it -- it never mints a token, so it never needs a private key.
+      # Set JWKS_URL (recommended) or USER_IDENTITY_PUBLIC_KEY, not both.
+      # Defaults to the platform backend's own JWKS endpoint, reachable by
+      # container name when joining the platform's Docker network (the
+      # default -- see EXTERNAL_AGENT_HOST above); override for external mode
+      # or a genuinely third-party deployment (see .env.example).
+      JWKS_URL: ${JWKS_URL:-http://backend:8000/.well-known/jwks.json}
+      USER_IDENTITY_PUBLIC_KEY: ${USER_IDENTITY_PUBLIC_KEY:-}
+      USER_IDENTITY_ISS: ${USER_IDENTITY_ISS:-prometheus-platform}
+      USER_IDENTITY_AUD: ${USER_IDENTITY_AUD:-prometheus-agents}
+      USER_IDENTITY_REQUIRED: ${USER_IDENTITY_REQUIRED:-true}
+
+      # deeplynx environment
+      DEEPLYNX_BASE_URL: ${DEEPLYNX_BASE_URL:-}
+      DEEPLYNX_KEY: ${DEEPLYNX_KEY:-}
+      DEEPLYNX_SECRET: ${DEEPLYNX_SECRET:-}
+      DEEPLYNX_ORG_ID: ${DEEPLYNX_ORG_ID:-}
+      DEEPLYNX_PROJECT_ID: ${DEEPLYNX_PROJECT_ID:-}
+
+      # LLM configuration. The profile maps the semantic flavors the agent asks
+      # for in code onto concrete provider models; `registry` (the default)
+      # routes inference through the platform's LiteLLM proxy. Provider keys are
+      # only read by the profile that references them. There is deliberately no
+      # MODEL_NAME here -- picking the model is the agent's job, not the
+      # deployment's.
+      LLM_CONFIG_PROFILE: ${LLM_CONFIG_PROFILE:-registry}
+      LLM_CONFIG_FILE: ${LLM_CONFIG_FILE:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AMSC_I2_API_KEY: ${AMSC_I2_API_KEY:-}
+
+      # Optional runtime tuning. Forwarded as empty when unset; prometheus_api
+      # treats empty as "use the default", so the defaults are defined in one
+      # place only (there and not here). See .env.example for what each does.
+      CREDENTIAL_BROKER: ${CREDENTIAL_BROKER:-}
+      REGISTRY_MAX_RETRIES: ${REGISTRY_MAX_RETRIES:-}
+      PROMETHEUS_TASK_STORE: ${PROMETHEUS_TASK_STORE:-}
+      AGENT_CONTEXT_TTL_SECONDS: ${AGENT_CONTEXT_TTL_SECONDS:-}
+      ARTIFACT_REGISTRY_TTL_SECONDS: ${ARTIFACT_REGISTRY_TTL_SECONDS:-}
+      TASK_STORE_TTL_SECONDS: ${TASK_STORE_TTL_SECONDS:-}
+      USER_WORKER_MAX: ${USER_WORKER_MAX:-}
+      USER_WORKER_IDLE_TTL: ${USER_WORKER_IDLE_TTL:-}
+
+      # Add your own agent-specific variables here (and in .env):
+      PYTHONDONTWRITEBYTECODE: 1
+    restart: unless-stopped

@@ -1,0 +1,4 @@
+services:
+  team-8-agent-agent:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

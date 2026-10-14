@@ -1,0 +1,4 @@
+networks:
+  agent-network:
+    external: true
+    name: prometheus_platform_agent-network

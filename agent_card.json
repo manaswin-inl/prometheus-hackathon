@@ -1,0 +1,30 @@
+{
+  "name": "team-8-agent Agent",
+  "description": "This is an agent which will be used to read  agent to extract relevant tabular data from files and display plots",
+  "version": "1.0.0",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "team_8_agent_extract",
+      "name": "team_8_agent Extract",
+      "description": "Reads relavant files and extracts tabular data which matches the user specifications. Input files can be any text based formats (.md, .csv, .txt, so on)",
+      "usage_notes": "When to use this skill vs. other available skills.",
+      "requires_approval": false,
+      "expected_duration_seconds": 30,
+      "output_format": "JSON with keys: status, input_received, message",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "input_data": {
+            "type": "string",
+            "description": "The main input data to process."
+          }
+        },
+        "required": ["input_data"]
+      }
+    }
+  ]
+}

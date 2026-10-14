@@ -1,0 +1,30 @@
+id: team-8-agent.example_workflow
+name: team-8-agent Example Workflow
+version: "1.0.0"
+description: Example agent-owned workflow for team-8-agent. Rename this file to .yaml to publish it.
+inputs:
+  required:
+    - input_data
+  optional: []
+execution:
+  mode: sequential
+  max_concurrency: 1
+  on_error: fail_fast
+steps:
+  - id: run_primary_skill
+    skill_id: team_8_agent_extract
+    is_final: true
+    params:
+      input_data:
+        from: input.input_data
+outputs:
+  final:
+    from: step.run_primary_skill.result
+metadata:
+  requires_approval: false
+  estimated_duration_seconds: 30
+  owner: team-8-agent
+ui:
+  category: team-8-agent
+  display_name: team-8-agent Example Workflow
+  summary: Example workflow that invokes the primary team-8-agent skill.

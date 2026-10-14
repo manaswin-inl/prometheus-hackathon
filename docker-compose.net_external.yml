@@ -1,0 +1,9 @@
+services:
+  team-8-agent-agent:
+    ports:
+      - "${EXTERNAL_AGENT_PORT}:${AGENT_PORT:-8000}"
+    environment:
+      EXTERNAL_AGENT_URL: http://${EXTERNAL_AGENT_HOST}:${EXTERNAL_AGENT_PORT}
+
+networks:
+  agent-network:

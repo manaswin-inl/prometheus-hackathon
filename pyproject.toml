@@ -1,0 +1,40 @@
+[project]
+name = "team-8-agent-agent"
+version = "0.1.0"
+description = "This is an agent which will be used to read  agent to extract relevant tabular data from files and display plots"
+requires-python = ">=3.12"
+dependencies = [
+    # List only packages YOUR agent code imports directly.
+    #
+    # prometheus_api (and a2a, starlette, uvicorn) are already installed in the
+    # base Docker image — do NOT list them here, or you'll install a second,
+    # possibly conflicting copy.
+    #
+    # Examples:
+    #   "anthropic>=0.18.0",   # if you call Claude directly
+    #   "httpx>=0.26.0",       # if you call external HTTP APIs
+    #   "numpy>=1.26.0",       # if you use NumPy
+]
+
+[dependency-groups]
+# Local development tools. Docker builds use --no-dev, so this group never
+# reaches the container. prometheus_api itself is NOT listed here: install it
+# to match the platform's base image (see README "Run locally").
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+]
+
+[tool.pytest.ini_options]
+# Async tests do not need @pytest.mark.asyncio.
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
