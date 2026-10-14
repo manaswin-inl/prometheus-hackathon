@@ -106,6 +106,21 @@ class Team8AgentAgent(PrometheusAgent):
         #    declared in agent_card.json's inputSchema.
         # ------------------------------------------------------------------
         # input_data = params.get("input_data")
+
+        handler = {
+            "team_8_agent_extract": self._extract,
+            "team_8_agent_plot": self._plot,
+        }.get(params.get("skill_id"))
+        if handler is None:
+            return {"status": "error", "error": f"Unknown skill: {params.get('skill_id')}"}
+        
+        return await handler(params, context, event_queue)
+
+
+    async def _extract(self, params: dict[str, Any], 
+                 context: RequestContext, 
+                 event_queue: EventQueue) -> dict[str, Any]:
+        
         artifact_id = params.get("document_artifact_id")
         description = params.get("table_description")
 
@@ -172,6 +187,63 @@ class Team8AgentAgent(PrometheusAgent):
         # ------------------------------------------------------------------
         return result
 
+    async def _plot(self, params: dict[str, Any],
+                    context: RequestContext,
+                    event_queue: EventQueue) -> dict[str, Any]:
+            
+            artifact_id = params.get("extracted_artifact_id")
+            description = params.get("plot_description")
+    
+            if not artifact_id and not description:
+                return {"status": "error", "error": "input_data is required"}
+    
+            file_path = await self.get_artifact_file_path(
+                artifact_id, context=context, artifacts=params.get("artifacts")
+            )
+            system_prompt = load_prompt("plot.txt").format(
+                file_path=file_path.read_text(), description=description
+                    )
+
+            await self.send_status_update(
+                context=context,
+                event_queue=event_queue,
+                message="Processing your request…",
+            )
+
+            async with self.llm_client(context) as llm:
+                response = await llm.medium(system_prompt)
+
+            result = json.loads(response.text)
+            df = pd.read_csv(StringIO(result["csv"]))
+            # Call the plotting tool.
+
+            storage_config = _try_storage_config()
+            artifact_ref = await self.send_deeplynx_artifact(
+                context=context,
+                event_queue=event_queue,
+                file_path=img_file_path,
+                name=result["filename"],
+                description="Generated plot image",
+                storage_config=storage_config,
+                mime_type="image/png",
+                tags=["plot", "image"],
+                metadata={"description": description},
+            )
+            
+            result = {
+                "status": "created",
+                # "conversation_id": conversation_id,
+                "message": "Plot Created Successfully",
+                "artifact": artifact_ref.to_dict(),
+                "artifact_id": artifact_ref.artifact_id,
+                "artifact_name": artifact_ref.name,
+                "artifact_uri": artifact_ref.uri,
+                # "input_received": description,
+                # "summary": response.text,
+            }
+    
+            return result
+
     # ----------------------------------------------------------------------
     # PATTERNS — uncomment and adapt as needed.
     # ----------------------------------------------------------------------
@@ -181,13 +253,7 @@ class Team8AgentAgent(PrometheusAgent):
     #
     # Dispatching when agent_card.json declares more than one skill:
     #
-    #     handler = {
-    #         "skill_a": self._handle_a,
-    #         "skill_b": self._handle_b,
-    #     }.get(params.get("skill_id"))
-    #     if handler is None:
-    #         return {"status": "error", "error": f"Unknown skill: {params.get('skill_id')}"}
-    #     return await handler(params, context, event_queue)
+
     #
     # Persisting per-conversation state across turns (Redis-backed, with an
     # in-memory fallback for local development):
