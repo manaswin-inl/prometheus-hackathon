@@ -10,7 +10,7 @@
     {
       "id": "team_8_agent_extract",
       "name": "team_8_agent Extract",
-      "description": "Reads relavant files and extracts tabular data which matches the user specifications. Input files can be any text based formats (.md, .csv, .txt, so on)",
+      "description": "Reads relavant files and extracts tabular data which matches the user specifications. If no description is provided, all tables will be extracted. Input files can be any text based formats (.md, .csv, .txt, so on)",
       "usage_notes": "Only for extracting tabular data from files. Input files can be any text based formats (.md, .csv, .txt, so on).",
       "requires_approval": false,
       "expected_duration_seconds": 30,
